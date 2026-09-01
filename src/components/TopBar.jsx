@@ -199,6 +199,12 @@ export default function TopBar() {
 
               <div className="space-y-1 text-xs">
                 <Link
+                  to="/"
+                  className="block px-2.5 py-1.5 rounded-lg text-studio-300 hover:bg-studio-800 hover:text-studio-100 transition-colors"
+                >
+                  StoryRoom Home & Overview
+                </Link>
+                <Link
                   to="/dashboard"
                   className="block px-2.5 py-1.5 rounded-lg text-studio-300 hover:bg-studio-800 hover:text-studio-100 transition-colors"
                 >
