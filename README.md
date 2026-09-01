@@ -206,8 +206,8 @@ console.log(secTest);
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-username/storyroom.git
-cd storyroom/storyroom
+git clone https://github.com/ruthweb-site/Storyroom.git
+cd Storyroom
 ```
 
 ### 2. Install Dependencies
