@@ -25,9 +25,14 @@
 // Config
 // ---------------------------------------------------------------------------
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
-const GEMINI_MODEL = 'gemini-2.0-flash'
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+const CANDIDATE_MODELS = [
+  import.meta.env.VITE_GEMINI_MODEL,
+  'gemini-1.5-flash',
+  'gemini-2.0-flash-exp',
+  'gemini-1.5-pro',
+].filter(Boolean)
+
+let activeModel = CANDIDATE_MODELS[0] || 'gemini-1.5-flash'
 
 function hasApiKey() {
   return typeof GEMINI_API_KEY === 'string' && GEMINI_API_KEY.trim().length > 20
@@ -81,41 +86,54 @@ function formatPreviousScenes(scenes) {
 }
 
 // ---------------------------------------------------------------------------
-// Real Gemini API call
+// Real Gemini API call with automatic model cascade
 // ---------------------------------------------------------------------------
 
 async function callGemini(prompt) {
-  const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemRole() }] },
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 1800,
-        responseMimeType: 'application/json',
-      },
-    }),
-  })
+  let lastError = null
 
-  if (!response.ok) {
-    const err = await response.text().catch(() => response.statusText)
-    throw new Error(`Gemini API error (${response.status}): ${err.slice(0, 200)}`)
+  // Try candidate models in order if one returns 404 / unavailable
+  for (const model of CANDIDATE_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemRole() }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 1800,
+            responseMimeType: 'application/json',
+          },
+        }),
+      })
+
+      if (response.ok) {
+        activeModel = model
+        const data = await response.json()
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+        if (!text) throw new Error('Gemini returned an empty response.')
+
+        try {
+          return JSON.parse(text)
+        } catch {
+          const match = text.match(/```(?:json)?\s*([\s\S]+?)\s*```/)
+          if (match) return JSON.parse(match[1])
+          throw new Error('Gemini response was not valid JSON.')
+        }
+      }
+
+      // If model not found or unavailable, try next candidate
+      const errText = await response.text().catch(() => response.statusText)
+      lastError = new Error(`Gemini API (${model}) returned ${response.status}: ${errText.slice(0, 150)}`)
+    } catch (e) {
+      lastError = e
+    }
   }
 
-  const data = await response.json()
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('Gemini returned an empty response.')
-
-  try {
-    return JSON.parse(text)
-  } catch {
-    // Try extracting JSON from markdown code blocks
-    const match = text.match(/```(?:json)?\s*([\s\S]+?)\s*```/)
-    if (match) return JSON.parse(match[1])
-    throw new Error('Gemini response was not valid JSON.')
-  }
+  throw lastError || new Error('All Gemini candidate models failed.')
 }
 
 // ---------------------------------------------------------------------------
@@ -637,8 +655,8 @@ Propose a revision that honors the instruction while respecting all Director's M
 export function getAIStatus() {
   return {
     hasKey: hasApiKey(),
-    model: GEMINI_MODEL,
+    model: activeModel,
     mode: hasApiKey() ? 'ai' : 'demo',
-    label: hasApiKey() ? `Gemini ${GEMINI_MODEL}` : 'Demo Intelligence',
+    label: hasApiKey() ? `Gemini ${activeModel}` : 'Demo Intelligence',
   }
 }
